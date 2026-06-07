@@ -10,3 +10,7 @@ Then run this command to extract a file <br>
 and then to pack it use<br> 
 `python cam_tool.py pack "D:\YOUR_PATH\render_params.data.json"`<br> 
 the render_params.data must be in the same folder as the json.
+
+# AI
+I heard that the community needs a tool to extract the render_params.data file. 
+I’m not very experienced with this, so I used AI to help me. 
