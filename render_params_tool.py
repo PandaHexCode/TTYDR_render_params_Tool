@@ -32,6 +32,7 @@ def build_hash_table(hash_strings_path=None):
 
 
 HASH_TABLE = {}
+HS_PATH = None
 
 def resolve(hash_int):
     return HASH_TABLE.get(hash_int, f'{hash_int:08x}')
@@ -228,8 +229,6 @@ def pack(json_path, out_path=None):
             out_bytes = zstd.ZstdCompressor(level=19).compress(out_bytes)
 
     Path(out_path).write_bytes(out_bytes)
-    print(f"  {len(out_bytes):,} B")
-    print(f"  -> {out_path}")
 
 
 def info(path):
@@ -284,6 +283,59 @@ def diff(path, key1, key2):
     print()
 
 
+
+def add_section(path, source_name, new_name, out_path=None):
+    import copy
+    p = Path(path)
+    if out_path is None:
+        out_path = str(p)
+
+    print(f"[add] {p.name}")
+    raw = load_file(path)
+    sections = parse_data(raw)
+
+    name_map = {resolve(s["entry_hash"]): s for s in sections}
+    hash_map  = {s["entry_hash"]: s for s in sections}
+
+    def find(k):
+        if k in name_map: return name_map[k]
+        try: return hash_map.get(int(k, 16))
+        except: return None
+
+    source = find(source_name)
+    if source is None:
+        print(f"ERROR: source section '{source_name}' not found.")
+        sys.exit(1)
+
+    new_hash = crc32(new_name)
+    if new_hash in hash_map:
+        print(f"ERROR: section '{new_name}' ({new_hash:08x}) already exists.")
+        sys.exit(1)
+
+    new_section = {
+        "entry_hash": new_hash,
+        "name_hash" : new_hash,
+        "size"      : source["size"],
+        "fields"    : copy.deepcopy(source["fields"]),
+    }
+    sections.append(new_section)
+
+    out_bytes = serialize_data(sections)
+    if out_path.endswith(".zst"):
+        out_bytes = zstd.ZstdCompressor(level=19).compress(out_bytes)
+    Path(out_path).write_bytes(out_bytes)
+
+    if HS_PATH and Path(HS_PATH).exists():
+        existing = Path(HS_PATH).read_text(encoding="utf-8").splitlines()
+        if new_name not in existing:
+            Path(HS_PATH).write_text("\n".join(existing + [new_name]) + "\n", encoding="utf-8")
+            print(f"  Added '{new_name}' to {Path(HS_PATH).name}")
+
+    print(f"  Copied '{source_name}' -> '{new_name}' ({new_hash:08x})")
+    print(f"  Total sections: {len(sections)}")
+    print(f"  -> {out_path}")
+
+
 def main():
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'):
@@ -292,11 +344,13 @@ def main():
         print("  render_params_tool.py pack    <file.data.json> [-hs hash_strings.txt]")
         print("  render_params_tool.py info    <file.data> [-hs hash_strings.txt]")
         print("  render_params_tool.py diff    <file.data> <section1> <section2> [-hs hash_strings.txt]")
+        print("  render_params_tool.py add     <file.data> <source> <new_name> [-hs hash_strings.txt]")
         print()
         print("  -hs  Path to hash_strings.txt (default: hash_strings.txt next to tool)")
         sys.exit(0)
 
     global HASH_TABLE
+    global HS_PATH
 
     hs_path = None
     if '-hs' in args:
@@ -309,6 +363,7 @@ def main():
             hs_path = str(default)
 
     HASH_TABLE = build_hash_table(hs_path)
+    HS_PATH = hs_path
     if HASH_TABLE:
         print(f"  Loaded {len(HASH_TABLE)} hash names")
 
@@ -332,6 +387,11 @@ def main():
             print("Error: diff needs <file> <section1> <section2>")
             sys.exit(1)
         diff(rest[0], rest[1], rest[2])
+    elif cmd == 'add':
+        if len(rest) < 3:
+            print('Error: add needs <file> <source_section> <new_name>')
+            sys.exit(1)
+        add_section(rest[0], rest[1], rest[2], out)
     else:
         print(f"Unknown command '{cmd}'. Use: extract | pack | info | diff")
         sys.exit(1)
